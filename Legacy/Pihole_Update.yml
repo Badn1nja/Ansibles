@@ -1,0 +1,22 @@
+---
+- name: Update DNS server - Pi-hole
+  hosts: dns_pihole
+  become: yes
+  tasks:
+    - name: Update apt package index
+      apt:
+        update_cache: yes
+
+    - name: Upgrade all packages
+      apt:
+        upgrade: dist
+
+    - name: Run Pi-hole update
+      shell: pihole -up
+      register: pihole_update
+      ignore_errors: yes  # Ignore errors in case the update fails, you can handle it as needed
+
+    - name: Reboot the server
+      reboot:
+        reboot_timeout: 600  # Wait up to 10 minutes for the reboot to complete
+      when: pihole_update.rc == 0  # Reboot only if Pi-hole update was successful

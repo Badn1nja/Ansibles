@@ -1,0 +1,12 @@
+- name: Verify SSH Key Access
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Check SSH Key Authentication
+      command: whoami
+      register: ssh_check
+      changed_when: false
+
+    - name: Display SSH Check Output
+      debug:
+        msg: "SSH Key is working! Connected as {{ ssh_check.stdout }}"

@@ -1,0 +1,61 @@
+---
+- name: Configure APT proxy and upgrade Debian hosts (excluding Ansible host)
+  hosts: debian-guests
+  become: yes
+  tasks:
+    - name: Update apt package index
+      apt:
+        update_cache: yes
+
+    - name: Upgrade all packages
+      apt:
+        upgrade: dist
+
+    - name: Check if reboot is required
+      stat:
+        path: /var/run/reboot-required
+      register: reboot_required
+
+    - name: Reboot if necessary
+      reboot:
+        reboot_timeout: 600
+      when: reboot_required.stat.exists
+
+- name: Update and configure Alpine hosts
+  hosts: alpine-guests
+  become: yes
+  tasks:
+    - name: Update apk index
+      apk:
+        update_cache: yes
+
+    - name: Upgrade all packages
+      shell: apk upgrade --available
+      args:
+        warn: false
+
+    - name: Reboot Alpine system 
+      reboot:
+        reboot_timeout: 300
+
+- name: Upgrade Ansible guest
+  hosts: ansible-guest
+  become: yes
+  tasks:
+    - name: Update apt package index
+      apt:
+        update_cache: yes
+
+    - name: Upgrade all packages
+      apt:
+        upgrade: dist
+
+    - name: Check if reboot is required
+      stat:
+        path: /var/run/reboot-required
+      register: reboot_required
+
+    - name: Reboot if necessary
+      reboot:
+        reboot_timeout: 600
+      when: reboot_required.stat.exists

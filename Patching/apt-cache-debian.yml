@@ -1,0 +1,19 @@
+---
+- name: Configure APT to use custom proxy
+  hosts: debian_hosts
+  become: yes
+  tasks:
+
+    - name: Ensure APT proxy configuration is in place
+      copy:
+        dest: /etc/apt/apt.conf.d/01proxy
+        content: |
+          Acquire::http::Proxy "http://192.168.1.11:3142/";
+          Acquire::https::Proxy "http://192.168.1.11:3142/";
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Update APT cache
+      apt:
+        update_cache: yes

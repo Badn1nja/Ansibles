@@ -1,0 +1,32 @@
+- name: Update OctoPi if online and idle
+  hosts: octopi
+  gather_facts: no
+  tasks:
+
+    - name: Check if OctoPi is reachable
+      ansible.builtin.ping:
+      register: pi_status
+      ignore_unreachable: yes
+      failed_when: no
+
+    - name: Skip playbook if OctoPi is offline
+      ansible.builtin.meta: end_play
+      when: pi_status.unreachable is defined
+
+    - name: Check if Klipper is running a print
+      ansible.builtin.shell: |
+        systemctl is-active klipper && curl -s http://localhost:7125/printer/objects/query?heater_bed | grep '"state": "printing"'
+      register: klipper_status
+      changed_when: false
+      failed_when: false
+
+    - name: Fail the job with a custom message if Klipper is printing
+      ansible.builtin.fail:
+        msg: "Print in progress. Retry in 12 hours."
+      when: "'\"state\": \"printing\"' in klipper_status.stdout"
+
+    - name: Update system packages
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: dist
+      become: no
