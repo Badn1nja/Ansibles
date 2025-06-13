@@ -1,6 +1,6 @@
 ---
 - name: Configure APT proxy and upgrade Debian hosts (excluding Ansible host)
-  hosts: debian-guests
+  hosts: debian_guests
   become: yes
   tasks:
     - name: Update apt package index
@@ -22,7 +22,7 @@
       when: reboot_required.stat.exists
 
 - name: Update and configure Alpine hosts
-  hosts: alpine-guests
+  hosts: alpine_guests
   become: yes
   tasks:
     - name: Update apk index
@@ -39,7 +39,7 @@
         reboot_timeout: 300
 
 - name: Upgrade Ansible guest
-  hosts: ansible-guest
+  hosts: ansible_guest
   become: yes
   tasks:
     - name: Update apt package index
