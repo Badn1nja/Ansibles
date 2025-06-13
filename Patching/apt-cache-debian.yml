@@ -1,15 +1,22 @@
----
 - name: Configure APT to use custom proxy
   hosts: debian_hosts
   become: yes
   tasks:
 
-    - name: Ensure APT proxy configuration is in place
-      copy:
-        dest: /etc/apt/apt.conf.d/01proxy
-        content: |
-          Acquire::http::Proxy "http://192.168.1.11:3142/";
-          Acquire::https::Proxy "http://192.168.1.11:3142/";
+    - name: Ensure APT HTTP proxy is configured
+      lineinfile:
+        path: /etc/apt/apt.conf.d/01proxy
+        line: 'Acquire::http::Proxy "http://192.168.1.11:3142/";'
+        create: yes
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Ensure APT HTTPS proxy is configured
+      lineinfile:
+        path: /etc/apt/apt.conf.d/01proxy
+        line: 'Acquire::https::Proxy "http://192.168.1.11:3142/";'
+        create: yes
         owner: root
         group: root
         mode: '0644'
