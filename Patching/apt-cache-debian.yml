@@ -1,5 +1,5 @@
 - name: Configure APT to use custom proxy
-  hosts: debian_hosts
+  hosts: debian_guests
   become: yes
   tasks:
 
