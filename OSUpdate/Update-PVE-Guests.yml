@@ -59,3 +59,12 @@
       reboot:
         reboot_timeout: 600
       when: reboot_required.stat.exists
+      
+- name: Update and upgrade all packages on OpenWrt
+  hosts: openwrt
+  ansible.builtin.shell: |
+    opkg update && \
+    opkg list-upgradable | cut -f 1 -d ' ' | xargs -r opkg upgrade
+  args:
+    executable: /bin/sh
+
