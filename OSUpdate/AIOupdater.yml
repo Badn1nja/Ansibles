@@ -1,0 +1,387 @@
+---
+- name: System Update Playbook - All Hosts Except Special Guest
+  hosts: all:!ansible_guest
+  become: yes
+  gather_facts: yes
+  vars:
+    reboot_required: false
+    update_cache_timeout: 3600  # 1 hour cache timeout
+
+  tasks:
+    - name: Display system information
+      debug:
+        msg: "Updating {{ ansible_hostname }} running {{ ansible_distribution }} {{ ansible_distribution_version }}"
+
+    # Debian/Ubuntu Systems
+    - name: Update apt cache (Debian/Ubuntu)
+      apt:
+        update_cache: yes
+        cache_valid_time: "{{ update_cache_timeout }}"
+      when: ansible_os_family == "Debian"
+      register: apt_cache_update
+
+    - name: Upgrade all packages (Debian/Ubuntu)
+      apt:
+        upgrade: dist
+      when: ansible_os_family == "Debian"
+      register: apt_upgrade_result
+
+    - name: Remove unnecessary packages (Debian/Ubuntu)
+      apt:
+        autoremove: yes
+        purge: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Clean apt cache (Debian/Ubuntu)
+      apt:
+        autoclean: yes
+      when: ansible_os_family == "Debian"
+
+    # RHEL/CentOS/Fedora Systems
+    - name: Update all packages (RHEL/CentOS/Fedora)
+      yum:
+        name: "*"
+        state: latest
+        update_cache: yes
+      when: ansible_os_family == "RedHat" and ansible_distribution_major_version|int < 8
+      register: yum_upgrade_result
+
+    - name: Update all packages with DNF (RHEL 8+/Fedora)
+      dnf:
+        name: "*"
+        state: latest
+        update_cache: yes
+      when: (ansible_os_family == "RedHat" and ansible_distribution_major_version|int >= 8) or ansible_distribution == "Fedora"
+      register: dnf_upgrade_result
+
+    # SUSE Systems
+    - name: Refresh repositories (SUSE)
+      zypper_repository:
+        repo: "*"
+        runrefreshrepo: yes
+      when: ansible_os_family == "Suse"
+
+    - name: Update all packages (SUSE)
+      zypper:
+        name: "*"
+        state: latest
+        update_cache: yes
+      when: ansible_os_family == "Suse"
+      register: zypper_upgrade_result
+
+    # Arch Linux
+    - name: Update all packages (Arch Linux)
+      pacman:
+        update_cache: yes
+        upgrade: yes
+      when: ansible_os_family == "Archlinux"
+      register: pacman_upgrade_result
+
+    # Alpine Linux
+    - name: Update apk index (Alpine)
+      apk:
+        update_cache: yes
+      when: ansible_os_family == "Alpine"
+
+    - name: Upgrade all packages (Alpine)
+      shell: apk upgrade --available
+      args:
+        warn: false
+      when: ansible_os_family == "Alpine"
+      register: apk_upgrade_result
+
+    # OpenWrt
+    - name: Update opkg package lists (OpenWrt)
+      shell: opkg update
+      when: "'openwrt' in group_names"
+      register: opkg_update_result
+
+    - name: List upgradable packages (OpenWrt)
+      shell: opkg list-upgradable
+      when: "'openwrt' in group_names"
+      register: opkg_upgradable
+      changed_when: false
+
+    - name: Upgrade all packages (OpenWrt)
+      shell: opkg list-upgradable | cut -f 1 -d ' ' | xargs -r opkg upgrade
+      when: "'openwrt' in group_names and opkg_upgradable.stdout_lines | length > 0"
+      register: opkg_upgrade_result
+
+    # Check if reboot is required
+    - name: Check if reboot is required (Debian/Ubuntu)
+      stat:
+        path: /var/run/reboot-required
+      register: reboot_required_file
+      when: ansible_os_family == "Debian"
+
+    - name: Set reboot required flag (Debian/Ubuntu)
+      set_fact:
+        reboot_required: true
+      when: ansible_os_family == "Debian" and reboot_required_file.stat.exists
+
+    - name: Check if reboot is required (RHEL/CentOS/Fedora)
+      shell: needs-restarting -r
+      register: needs_restart
+      failed_when: false
+      changed_when: false
+      when: ansible_os_family == "RedHat"
+
+    - name: Set reboot required flag (RHEL/CentOS/Fedora)
+      set_fact:
+        reboot_required: true
+      when: ansible_os_family == "RedHat" and needs_restart.rc == 1
+
+    # Alpine Linux always requires reboot after major upgrades
+    - name: Set reboot required flag (Alpine)
+      set_fact:
+        reboot_required: true
+      when: ansible_os_family == "Alpine" and apk_upgrade_result.changed
+
+    # OpenWrt typically benefits from reboot after kernel/system updates
+    - name: Set reboot required flag (OpenWrt)
+      set_fact:
+        reboot_required: true
+      when: "'openwrt' in group_names and opkg_upgrade_result is defined and opkg_upgrade_result.changed"
+
+    # Display update results
+    - name: Display update summary
+      debug:
+        msg: |
+          Update Summary for {{ ansible_hostname }}:
+          - OS Family: {{ ansible_os_family }}
+          - Distribution: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          - Reboot Required: {{ reboot_required }}
+          {% if ansible_os_family == "Debian" and apt_upgrade_result is defined %}
+          - Packages Updated: {{ apt_upgrade_result.changed }}
+          {% elif ansible_os_family == "RedHat" and yum_upgrade_result is defined %}
+          - Packages Updated: {{ yum_upgrade_result.changed }}
+          {% elif ansible_os_family == "RedHat" and dnf_upgrade_result is defined %}
+          - Packages Updated: {{ dnf_upgrade_result.changed }}
+          {% elif ansible_os_family == "Suse" and zypper_upgrade_result is defined %}
+          - Packages Updated: {{ zypper_upgrade_result.changed }}
+          {% elif ansible_os_family == "Archlinux" and pacman_upgrade_result is defined %}
+          - Packages Updated: {{ pacman_upgrade_result.changed }}
+          {% elif ansible_os_family == "Alpine" and apk_upgrade_result is defined %}
+          - Packages Updated: {{ apk_upgrade_result.changed }}
+          {% elif 'openwrt' in group_names and opkg_upgrade_result is defined %}
+          - Packages Updated: {{ opkg_upgrade_result.changed }}
+          {% endif %}
+
+    # Optional reboot (commented out by default for safety)
+    # - name: Reboot system if required
+    #   reboot:
+    #     msg: "Rebooting after system updates"
+    #     connect_timeout: 5
+    #     reboot_timeout: 300
+    #     pre_reboot_delay: 0
+    #     post_reboot_delay: 30
+    #   when: reboot_required and auto_reboot | default(false)
+
+    - name: Notify about required reboot
+      debug:
+        msg: "WARNING: {{ ansible_hostname }} requires a reboot to complete updates!"
+      when: reboot_required
+
+  handlers:
+    - name: restart services
+      service:
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - ssh
+        - networking
+      ignore_errors: yes
+
+# Separate play for the special ansible_guest host (192.168.1.6)
+- name: System Update Playbook - Special Guest Host (192.168.1.6)
+  hosts: ansible_guest
+  become: yes
+  gather_facts: yes
+  vars:
+    reboot_required: false
+    update_cache_timeout: 3600  # 1 hour cache timeout
+
+  tasks:
+    - name: Display system information
+      debug:
+        msg: "Updating FINAL HOST: {{ ansible_hostname }} ({{ inventory_hostname }}) running {{ ansible_distribution }} {{ ansible_distribution_version }}"
+
+    # Debian/Ubuntu Systems
+    - name: Update apt cache (Debian/Ubuntu)
+      apt:
+        update_cache: yes
+        cache_valid_time: "{{ update_cache_timeout }}"
+      when: ansible_os_family == "Debian"
+      register: apt_cache_update
+
+    - name: Upgrade all packages (Debian/Ubuntu)
+      apt:
+        upgrade: dist
+      when: ansible_os_family == "Debian"
+      register: apt_upgrade_result
+
+    - name: Remove unnecessary packages (Debian/Ubuntu)
+      apt:
+        autoremove: yes
+        purge: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Clean apt cache (Debian/Ubuntu)
+      apt:
+        autoclean: yes
+      when: ansible_os_family == "Debian"
+
+    # RHEL/CentOS/Fedora Systems
+    - name: Update all packages (RHEL/CentOS/Fedora)
+      yum:
+        name: "*"
+        state: latest
+        update_cache: yes
+      when: ansible_os_family == "RedHat" and ansible_distribution_major_version|int < 8
+      register: yum_upgrade_result
+
+    - name: Update all packages with DNF (RHEL 8+/Fedora)
+      dnf:
+        name: "*"
+        state: latest
+        update_cache: yes
+      when: (ansible_os_family == "RedHat" and ansible_distribution_major_version|int >= 8) or ansible_distribution == "Fedora"
+      register: dnf_upgrade_result
+
+    # SUSE Systems
+    - name: Refresh repositories (SUSE)
+      zypper_repository:
+        repo: "*"
+        runrefreshrepo: yes
+      when: ansible_os_family == "Suse"
+
+    - name: Update all packages (SUSE)
+      zypper:
+        name: "*"
+        state: latest
+        update_cache: yes
+      when: ansible_os_family == "Suse"
+      register: zypper_upgrade_result
+
+    # Arch Linux
+    - name: Update all packages (Arch Linux)
+      pacman:
+        update_cache: yes
+        upgrade: yes
+      when: ansible_os_family == "Archlinux"
+      register: pacman_upgrade_result
+
+    # Alpine Linux
+    - name: Update apk index (Alpine)
+      apk:
+        update_cache: yes
+      when: ansible_os_family == "Alpine"
+
+    - name: Upgrade all packages (Alpine)
+      shell: apk upgrade --available
+      args:
+        warn: false
+      when: ansible_os_family == "Alpine"
+      register: apk_upgrade_result
+
+    # OpenWrt
+    - name: Update opkg package lists (OpenWrt)
+      shell: opkg update
+      when: "'openwrt' in group_names"
+      register: opkg_update_result
+
+    - name: List upgradable packages (OpenWrt)
+      shell: opkg list-upgradable
+      when: "'openwrt' in group_names"
+      register: opkg_upgradable
+      changed_when: false
+
+    - name: Upgrade all packages (OpenWrt)
+      shell: opkg list-upgradable | cut -f 1 -d ' ' | xargs -r opkg upgrade
+      when: "'openwrt' in group_names and opkg_upgradable.stdout_lines | length > 0"
+      register: opkg_upgrade_result
+
+    # Check if reboot is required
+    - name: Check if reboot is required (Debian/Ubuntu)
+      stat:
+        path: /var/run/reboot-required
+      register: reboot_required_file
+      when: ansible_os_family == "Debian"
+
+    - name: Set reboot required flag (Debian/Ubuntu)
+      set_fact:
+        reboot_required: true
+      when: ansible_os_family == "Debian" and reboot_required_file.stat.exists
+
+    - name: Check if reboot is required (RHEL/CentOS/Fedora)
+      shell: needs-restarting -r
+      register: needs_restart
+      failed_when: false
+      changed_when: false
+      when: ansible_os_family == "RedHat"
+
+    - name: Set reboot required flag (RHEL/CentOS/Fedora)
+      set_fact:
+        reboot_required: true
+      when: ansible_os_family == "RedHat" and needs_restart.rc == 1
+
+    # Alpine Linux always requires reboot after major upgrades
+    - name: Set reboot required flag (Alpine)
+      set_fact:
+        reboot_required: true
+      when: ansible_os_family == "Alpine" and apk_upgrade_result.changed
+
+    # OpenWrt typically benefits from reboot after kernel/system updates
+    - name: Set reboot required flag (OpenWrt)
+      set_fact:
+        reboot_required: true
+      when: "'openwrt' in group_names and opkg_upgrade_result is defined and opkg_upgrade_result.changed"
+
+    # Display update results
+    - name: Display update summary for final host
+      debug:
+        msg: |
+          FINAL HOST Update Summary for {{ ansible_hostname }}:
+          - OS Family: {{ ansible_os_family }}
+          - Distribution: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          - Reboot Required: {{ reboot_required }}
+          {% if ansible_os_family == "Debian" and apt_upgrade_result is defined %}
+          - Packages Updated: {{ apt_upgrade_result.changed }}
+          {% elif ansible_os_family == "RedHat" and yum_upgrade_result is defined %}
+          - Packages Updated: {{ yum_upgrade_result.changed }}
+          {% elif ansible_os_family == "RedHat" and dnf_upgrade_result is defined %}
+          - Packages Updated: {{ dnf_upgrade_result.changed }}
+          {% elif ansible_os_family == "Suse" and zypper_upgrade_result is defined %}
+          - Packages Updated: {{ zypper_upgrade_result.changed }}
+          {% elif ansible_os_family == "Archlinux" and pacman_upgrade_result is defined %}
+          - Packages Updated: {{ pacman_upgrade_result.changed }}
+          {% elif ansible_os_family == "Alpine" and apk_upgrade_result is defined %}
+          - Packages Updated: {{ apk_upgrade_result.changed }}
+          {% elif 'openwrt' in group_names and opkg_upgrade_result is defined %}
+          - Packages Updated: {{ opkg_upgrade_result.changed }}
+          {% endif %}
+
+    # Optional reboot (commented out by default for safety)
+    # - name: Reboot system if required
+    #   reboot:
+    #     msg: "Rebooting after system updates"
+    #     connect_timeout: 5
+    #     reboot_timeout: 300
+    #     pre_reboot_delay: 0
+    #     post_reboot_delay: 30
+    #   when: reboot_required and auto_reboot | default(false)
+
+    - name: Notify about required reboot on final host
+      debug:
+        msg: "WARNING: FINAL HOST {{ ansible_hostname }} requires a reboot to complete updates!"
+      when: reboot_required
+
+  handlers:
+    - name: restart services
+      service:
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - ssh
+        - networking
+      ignore_errors: yes
