@@ -85,8 +85,6 @@
 
     - name: Upgrade all packages (Alpine)
       shell: apk upgrade --available
-      args:
-        warn: false
       when: ansible_os_family == "Alpine"
       register: apk_upgrade_result
 
@@ -279,8 +277,6 @@
 
     - name: Upgrade all packages (Alpine)
       shell: apk upgrade --available
-      args:
-        warn: false
       when: ansible_os_family == "Alpine"
       register: apk_upgrade_result
 
