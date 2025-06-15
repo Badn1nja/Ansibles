@@ -1,15 +1,26 @@
 ---
-- name: Run update command and handle interactive prompt
-  hosts: update_cmd
+- name: Run update with expect and handle confirmation
+  hosts: all
   become: yes
   tasks:
+    - name: Ensure pexpect is installed
+      ansible.builtin.pip:
+        name: pexpect
+        state: present
+
     - name: Run 'update' command with expect to auto-confirm "Proceed?"
-      expect:
+      ansible.builtin.expect:
         command: update
         responses:
           'Proceed\?': '\r'
       register: update_result
       failed_when:
         - update_result.rc != 0
-        - "'error' in update_result.stdout.lower() or 'failed' in update_result.stdout.lower()"
-      changed_when: "'updated' in update_result.stdout.lower() or 'installed' in update_result.stdout.lower()"
+        - update_result.stdout is defined and (
+            "'error' in update_result.stdout.lower()" or
+            "'failed' in update_result.stdout.lower()"
+          )
+      changed_when: update_result.stdout is defined and (
+          "'updated' in update_result.stdout.lower()" or
+          "'installed' in update_result.stdout.lower()"
+      )
