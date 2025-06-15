@@ -4,7 +4,7 @@
   become: yes
   tasks:
     - name: Run 'update' command and capture output
-      ansible.builtin.shell: update
+      ansible.builtin.shell: "echo | update"
       register: update_result
       changed_when: "'✓ Updated' in update_result.stdout"
 
