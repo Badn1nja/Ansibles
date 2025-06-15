@@ -1,6 +1,6 @@
 ---
 - name: Run update command and handle interactive prompt
-  hosts: all
+  hosts: update_cmd
   become: yes
   tasks:
     - name: Run 'update' command with expect to auto-confirm "Proceed?"
