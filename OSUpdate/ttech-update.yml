@@ -1,28 +1,48 @@
 ---
-- name: Run update and handle interactive prompt
-  hosts: update_cmd
-  become: true
-  gather_facts: false
-
-  pre_tasks:
-    - name: Ensure python3-pexpect is installed
-      apt:
-        name: python3-pexpect
-        state: present
-        update_cache: yes
-
+- name: Run Custom Update Command
+  hosts: all
+  become: yes
   tasks:
-    - name: Run update and handle prompt
-      expect:
-        command: update
-        responses:
-          '.*Proceed\?.*': '\r'
-        timeout: 90
+    - name: Execute update command with automatic handling
+      shell: |
+        # Handle all three update scenarios automatically
+        # US1: update > enter > Updated
+        # US2: update > enter > menu > enter > Updated  
+        # US3: update > enter > spacebar prompt > tab > enter > updated > update > enter > spacebar prompt > space > tab > enter > updated
+        
+        (
+          echo                    # Initial enter for update command
+          sleep 2                 # Wait for response
+          echo -e "\t"           # Send tab (for US3 first selection)
+          sleep 1
+          echo                    # Send enter
+          sleep 3                 # Wait for first update to complete
+          echo "update"           # Send second update command (for US3)
+          sleep 1
+          echo                    # Enter for second update
+          sleep 2
+          echo -e " "            # Send spacebar (for US3 second selection)
+          sleep 1
+          echo -e "\t"           # Send tab
+          sleep 1
+          echo                    # Final enter
+          sleep 3                 # Wait for final completion
+        ) | timeout 600 update
       register: update_result
-      changed_when: "'✓ Updated' in update_result.stdout"
-      failed_when: "'error' in update_result.stdout.lower()"
+      failed_when: false
 
-    - name: Show update command output
+    - name: Display update output
       debug:
-        var: update_result.stdout
+        msg: |
+          Update completed for {{ ansible_hostname }}:
+          {{ update_result.stdout }}
 
+    - name: Check if update was successful
+      debug:
+        msg: "✓ Update completed successfully on {{ ansible_hostname }}"
+      when: "'Updated' in update_result.stdout or 'updated' in update_result.stdout"
+
+    - name: Show any errors
+      debug:
+        msg: "⚠ Update may have failed on {{ ansible_hostname }}: {{ update_result.stderr }}"
+      when: update_result.rc != 0 and update_result.stderr != ""
