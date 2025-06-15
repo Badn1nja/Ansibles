@@ -1,66 +1,253 @@
 ---
-- name: Upgrade and reboot catinthehat
+- name: Upgrade Proxmox Host - catinthehat
   hosts: catinthehat
   become: yes
+  serial: 1  # Update one at a time for cluster stability
   tasks:
+    - name: Check Proxmox cluster status
+      shell: pvecm status
+      register: cluster_status
+      failed_when: false
+      changed_when: false
+
+    - name: Display cluster info
+      debug:
+        msg: "Cluster status: {{ 'Online' if cluster_status.rc == 0 else 'Standalone' }}"
+
+    - name: Update Proxmox repository keys
+      apt_key:
+        url: https://enterprise.proxmox.com/debian/proxmox-release-{{ ansible_distribution_release }}.gpg
+        state: present
+      ignore_errors: yes
+
     - name: Update apt package index
       apt:
         update_cache: yes
+        cache_valid_time: 3600
 
-    - name: Upgrade all packages
+    - name: Upgrade Proxmox packages first
+      apt:
+        name:
+          - proxmox-ve
+          - pve-manager
+          - pve-kernel-*
+        state: latest
+      register: proxmox_upgrade
+
+    - name: Upgrade all other packages
       apt:
         upgrade: dist
+        autoremove: yes
+        autoclean: yes
+
+    - name: Check if VMs/CTs are running
+      shell: qm list | grep -c running || true
+      register: running_vms
+      changed_when: false
+
+    - name: Check if containers are running  
+      shell: pct list | grep -c running || true
+      register: running_cts
+      changed_when: false
+
+    - name: Display running services
+      debug:
+        msg: "Running VMs: {{ running_vms.stdout }}, Running CTs: {{ running_cts.stdout }}"
 
     - name: Check if reboot is required
       stat:
         path: /var/run/reboot-required
       register: reboot_required
 
+    - name: Warn about running services before reboot
+      debug:
+        msg: "WARNING: {{ running_vms.stdout }} VMs and {{ running_cts.stdout }} containers will be affected by reboot"
+      when: reboot_required.stat.exists and (running_vms.stdout|int > 0 or running_cts.stdout|int > 0)
+
     - name: Reboot if necessary
       reboot:
         reboot_timeout: 600
+        pre_reboot_delay: 10
+        post_reboot_delay: 30
       when: reboot_required.stat.exists
 
-- name: Upgrade and reboot thing1 (Internet disruption expected)
+    - name: Verify Proxmox services after reboot
+      service:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - pvedaemon
+        - pveproxy
+        - pvestatd
+      when: reboot_required.stat.exists
+
+- name: Upgrade Proxmox Host - thing1 (Internet disruption expected)
   hosts: thing1
   become: yes
+  serial: 1
   tasks:
+    - name: Pre-update notification
+      debug:
+        msg: "⚠️  INTERNET DISRUPTION EXPECTED - Updating critical network host thing1"
+
+    - name: Check Proxmox cluster status
+      shell: pvecm status
+      register: cluster_status
+      failed_when: false
+      changed_when: false
+
+    - name: Update Proxmox repository keys
+      apt_key:
+        url: https://enterprise.proxmox.com/debian/proxmox-release-{{ ansible_distribution_release }}.gpg
+        state: present
+      ignore_errors: yes
+
     - name: Update apt package index
       apt:
         update_cache: yes
+        cache_valid_time: 3600
 
-    - name: Upgrade all packages
+    - name: Upgrade Proxmox packages first
+      apt:
+        name:
+          - proxmox-ve
+          - pve-manager
+          - pve-kernel-*
+        state: latest
+
+    - name: Upgrade all other packages
       apt:
         upgrade: dist
+        autoremove: yes
+        autoclean: yes
+
+    - name: Check running services before reboot
+      shell: |
+        echo "VMs: $(qm list | grep -c running || echo 0)"
+        echo "CTs: $(pct list | grep -c running || echo 0)"
+      register: services_status
+      changed_when: false
+
+    - name: Display service status
+      debug:
+        var: services_status.stdout_lines
 
     - name: Check if reboot is required
       stat:
         path: /var/run/reboot-required
       register: reboot_required
 
+    - name: Final warning before reboot
+      debug:
+        msg: "🚨 REBOOTING NETWORK HOST - INTERNET DISRUPTION IMMINENT"
+      when: reboot_required.stat.exists
+
     - name: Reboot if necessary
       reboot:
         reboot_timeout: 600
+        pre_reboot_delay: 10
+        post_reboot_delay: 30
       when: reboot_required.stat.exists
 
-- name: Upgrade and reboot thing2 (Ansible host)
+    - name: Verify critical services after reboot
+      service:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - pvedaemon
+        - pveproxy
+        - pvestatd
+        - networking
+      when: reboot_required.stat.exists
+
+- name: Upgrade Proxmox Host - thing2 (Ansible host) - LAST
   hosts: thing2
   become: yes
+  serial: 1
   tasks:
+    - name: Pre-update notification
+      debug:
+        msg: "🎯 UPDATING ANSIBLE CONTROL HOST - This is the final host"
+
+    - name: Check Proxmox cluster status
+      shell: pvecm status
+      register: cluster_status
+      failed_when: false
+      changed_when: false
+
+    - name: Update Proxmox repository keys
+      apt_key:
+        url: https://enterprise.proxmox.com/debian/proxmox-release-{{ ansible_distribution_release }}.gpg
+        state: present
+      ignore_errors: yes
+
     - name: Update apt package index
       apt:
         update_cache: yes
+        cache_valid_time: 3600
 
-    - name: Upgrade all packages
+    - name: Upgrade Proxmox packages first
+      apt:
+        name:
+          - proxmox-ve
+          - pve-manager
+          - pve-kernel-*
+        state: latest
+
+    - name: Upgrade all other packages
       apt:
         upgrade: dist
+        autoremove: yes
+        autoclean: yes
+
+    - name: Check Ansible and SSH services
+      service:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - ssh
+        - rsyslog
+
+    - name: Check running VMs/CTs on Ansible host
+      shell: |
+        echo "VMs: $(qm list | grep -c running || echo 0)"
+        echo "CTs: $(pct list | grep -c running || echo 0)"
+      register: ansible_host_services
+      changed_when: false
+
+    - name: Display Ansible host services
+      debug:
+        var: ansible_host_services.stdout_lines
 
     - name: Check if reboot is required
       stat:
         path: /var/run/reboot-required
       register: reboot_required
 
-    - name: Reboot if necessary
+    - name: Final host reboot warning
+      debug:
+        msg: "🚨 REBOOTING ANSIBLE CONTROL HOST - Connection will be lost temporarily"
+      when: reboot_required.stat.exists
+
+    - name: Reboot Ansible host if necessary
       reboot:
         reboot_timeout: 600
+        pre_reboot_delay: 15  # Extra time for cleanup
+        post_reboot_delay: 30
       when: reboot_required.stat.exists
+
+    - name: Verify all services after reboot
+      service:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - pvedaemon
+        - pveproxy
+        - pvestatd
+        - ssh
+        - networking
+      when: reboot_required.stat.exists
+
+    - name: Final completion message
+      debug:
+        msg: "✅ All Proxmox hosts updated successfully! Ansible control host back online."
