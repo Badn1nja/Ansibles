@@ -1,14 +1,28 @@
 ---
-- name: Run update and check for success
-  hosts: all
-  become: yes
+- name: Run update and handle interactive prompt
+  hosts: update_cmd
+  become: true
+  gather_facts: false
+
+  pre_tasks:
+    - name: Ensure python3-pexpect is installed
+      apt:
+        name: python3-pexpect
+        state: present
+        update_cache: yes
+
   tasks:
-    - name: Run 'update' command and capture output
-      ansible.builtin.shell: "echo | update"
+    - name: Run update and handle prompt
+      expect:
+        command: update
+        responses:
+          '.*Proceed\?.*': '\r'
+        timeout: 90
       register: update_result
       changed_when: "'✓ Updated' in update_result.stdout"
+      failed_when: "'error' in update_result.stdout.lower()"
 
-    - name: Fail if update was not successful
-      ansible.builtin.fail:
-        msg: "Update did not succeed: {{ update_result.stdout | default('No output') }}"
-      when: "'✓ Updated' not in update_result.stdout"
+    - name: Show update command output
+      debug:
+        var: update_result.stdout
+
