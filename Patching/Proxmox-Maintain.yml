@@ -1,0 +1,199 @@
+---
+- name: Proxmox Maintenance Tasks
+  hosts: all
+  become: yes
+  gather_facts: yes
+  vars:
+    log_retention_days: 30
+    backup_retention_days: 14
+
+  tasks:
+    - name: Display maintenance start info
+      debug:
+        msg: |
+          🔧 Starting maintenance on {{ ansible_hostname }}
+          - OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          - Uptime: {{ ansible_uptime_seconds // 86400 }} days
+
+    # System cleanup
+    - name: Clean package cache
+      apt:
+        autoclean: yes
+        autoremove: yes
+
+    - name: Remove old kernels (keep 2 latest)
+      shell: |
+        CURRENT=$(uname -r)
+        KEEP=$(dpkg -l | grep linux-image | grep -v $CURRENT | tail -n 2 | awk '{print $2}')
+        REMOVE=$(dpkg -l | grep linux-image | grep -v $CURRENT | head -n -2 | awk '{print $2}')
+        if [ -n "$REMOVE" ]; then
+          apt-get -y remove $REMOVE
+        fi
+      register: kernel_cleanup
+      changed_when: "'Removing' in kernel_cleanup.stdout"
+
+    # Log management
+    - name: Rotate and compress logs
+      shell: logrotate -f /etc/logrotate.conf
+      changed_when: false
+
+    - name: Clean old journal logs
+      shell: journalctl --vacuum-time={{ log_retention_days }}d
+      register: journal_cleanup
+      changed_when: "'Vacuuming done' in journal_cleanup.stdout"
+
+    - name: Clean old Proxmox logs
+      find:
+        paths:
+          - /var/log/pve
+          - /var/log/pve-firewall
+        age: "{{ log_retention_days }}d"
+        recurse: yes
+      register: old_pve_logs
+
+    - name: Remove old Proxmox logs
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_pve_logs.files }}"
+
+    # Storage cleanup
+    - name: Check disk usage
+      shell: df -h / /var /tmp
+      register: disk_usage
+      changed_when: false
+
+    - name: Display disk usage
+      debug:
+        var: disk_usage.stdout_lines
+
+    - name: Clean temporary files
+      shell: find /tmp -type f -atime +7 -delete
+      changed_when: false
+
+    - name: Clean old backup files
+      find:
+        paths: /var/lib/vz/dump
+        age: "{{ backup_retention_days }}d"
+        patterns: "*.vma.gz,*.tar.gz,*.tar.lzo"
+      register: old_backups
+
+    - name: Remove old backup files
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_backups.files }}"
+      when: old_backups.files | length > 0
+
+    # Proxmox-specific maintenance
+    - name: Check Proxmox cluster status
+      shell: pvecm status
+      register: cluster_status
+      failed_when: false
+      changed_when: false
+
+    - name: Check running VMs and containers
+      shell: |
+        echo "=== Running VMs ==="
+        qm list | grep running || echo "No running VMs"
+        echo "=== Running Containers ==="
+        pct list | grep running || echo "No running containers"
+      register: vm_status
+      changed_when: false
+
+    - name: Display VM/Container status
+      debug:
+        var: vm_status.stdout_lines
+
+    - name: Check Proxmox services
+      service_facts:
+
+    - name: Verify critical Proxmox services
+      debug:
+        msg: "{{ item }} is {{ ansible_facts.services[item].state }}"
+      loop:
+        - pvedaemon
+        - pveproxy
+        - pvestatd
+        - pve-cluster
+      when: item in ansible_facts.services
+
+    # Storage maintenance
+    - name: Check ZFS pools (if present)
+      shell: zpool status
+      register: zfs_status
+      failed_when: false
+      changed_when: false
+
+    - name: Display ZFS status
+      debug:
+        var: zfs_status.stdout_lines
+      when: zfs_status.rc == 0
+
+    - name: Check LVM usage
+      shell: |
+        echo "=== Volume Groups ==="
+        vgs
+        echo "=== Logical Volumes ==="
+        lvs
+      register: lvm_status
+      failed_when: false
+      changed_when: false
+
+    - name: Display LVM status
+      debug:
+        var: lvm_status.stdout_lines
+      when: lvm_status.rc == 0
+
+    # Network maintenance
+    - name: Check network interfaces
+      shell: ip addr show | grep -E "^[0-9]+:|inet "
+      register: network_status
+      changed_when: false
+
+    - name: Display network status
+      debug:
+        var: network_status.stdout_lines
+
+    # Security maintenance
+    - name: Update locate database
+      shell: updatedb
+      changed_when: false
+
+    - name: Check for failed login attempts
+      shell: grep "Failed password" /var/log/auth.log | tail -10 || echo "No recent failed logins"
+      register: failed_logins
+      changed_when: false
+
+    - name: Display security info
+      debug:
+        msg: "Recent failed logins: {{ failed_logins.stdout_lines | length }} entries"
+
+    # System health checks
+    - name: Check system load
+      shell: uptime
+      register: system_load
+      changed_when: false
+
+    - name: Check memory usage
+      shell: free -h
+      register: memory_usage
+      changed_when: false
+
+    - name: Display system health
+      debug:
+        msg: |
+          System Health Summary for {{ ansible_hostname }}:
+          Load: {{ system_load.stdout }}
+          Memory: {{ memory_usage.stdout_lines[1] }}
+
+    # Final summary
+    - name: Maintenance completion summary
+      debug:
+        msg: |
+          ✅ Maintenance completed on {{ ansible_hostname }}:
+          - Logs cleaned ({{ log_retention_days }} days retention)
+          - Backups cleaned ({{ backup_retention_days }} days retention)
+          - Package cache cleaned
+          - System health verified
+          - Proxmox services checked
