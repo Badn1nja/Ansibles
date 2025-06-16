@@ -35,6 +35,17 @@
     - name: Reboot Alpine system 
       reboot:
         reboot_timeout: 300
+        
+- name: Update and upgrade all packages on OpenWrt
+  hosts: openwrt
+  become: yes
+  connection: ssh
+  gather_facts: no
+  tasks:
+    - name: Run opkg update and upgrade
+      ansible.builtin.raw: |
+        opkg update && \
+        opkg list-upgradable | cut -f 1 -d ' ' | xargs -r opkg upgrade
 
 - name: Upgrade Ansible guest
   hosts: ansible_guest
@@ -58,13 +69,3 @@
         reboot_timeout: 600
       when: reboot_required.stat.exists
       
-- name: Update and upgrade all packages on OpenWrt
-  hosts: openwrt
-  become: yes
-  connection: ssh
-  gather_facts: no
-  tasks:
-    - name: Run opkg update and upgrade
-      ansible.builtin.raw: |
-        opkg update && \
-        opkg list-upgradable | cut -f 1 -d ' ' | xargs -r opkg upgrade
