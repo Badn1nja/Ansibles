@@ -31,9 +31,7 @@
 
     - name: Upgrade all packages
       shell: apk upgrade --available
-      args:
-        warn: false
-
+      
     - name: Reboot Alpine system 
       reboot:
         reboot_timeout: 300
