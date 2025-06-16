@@ -63,11 +63,10 @@
 - name: Update and upgrade all packages on OpenWrt
   hosts: openwrt
   become: yes
+  connection: ssh
+  gather_facts: no
   tasks:
     - name: Run opkg update and upgrade
-      ansible.builtin.shell: |
+      ansible.builtin.raw: |
         opkg update && \
         opkg list-upgradable | cut -f 1 -d ' ' | xargs -r opkg upgrade
-      args:
-        executable: /bin/sh
-
