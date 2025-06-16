@@ -156,10 +156,6 @@
         var: network_status.stdout_lines
 
     # Security maintenance
-    - name: Update locate database
-      shell: updatedb
-      changed_when: false
-
     - name: Check for failed login attempts
       shell: grep "Failed password" /var/log/auth.log | tail -10 || echo "No recent failed logins"
       register: failed_logins
