@@ -1,0 +1,52 @@
+---
+- name: Infrastructure Update Playbook
+  hosts: localhost
+  gather_facts: false
+  vars:
+    update_log_file: "/tmp/update_results_{{ ansible_date_time.epoch }}.log"
+    failed_hosts: []
+    
+  tasks:
+    - name: Initialize update log
+      lineinfile:
+        path: "{{ update_log_file }}"
+        line: "=== Infrastructure Update Started at {{ ansible_date_time.iso8601 }} ==="
+        create: yes
+      delegate_to: localhost
+      run_once: true
+
+    - name: Update non-firewall hosts first
+      include_tasks: tasks/update_systems.yml
+      vars:
+        target_group: "{{ item }}"
+      loop:
+        - alpine_hosts
+        - debian_hosts
+        - docker_hosts
+        - openwrt_non_firewall
+        - octopi_hosts
+      loop_control:
+        loop_var: target_group
+
+    - name: Update firewall hosts last
+      include_tasks: tasks/update_systems.yml
+      vars:
+        target_group: firewall_hosts
+        is_firewall: true
+
+    - name: Generate final report
+      template:
+        src: update_report.j2
+        dest: "/tmp/final_update_report_{{ ansible_date_time.epoch }}.txt"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Display summary
+      debug:
+        msg: |
+          Update Summary:
+          - Log file: {{ update_log_file }}
+          - Failed hosts: {{ failed_hosts | length }}
+          {% if failed_hosts %}
+          - Failed: {{ failed_hosts | join(', ') }}
+          {% endif %}

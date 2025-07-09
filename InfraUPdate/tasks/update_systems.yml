@@ -1,0 +1,43 @@
+---
+- name: "Update {{ target_group }} systems"
+  block:
+    - name: Log update start for group
+      lineinfile:
+        path: "{{ update_log_file }}"
+        line: "Starting updates for {{ target_group }} at {{ ansible_date_time.iso8601 }}"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Update Alpine systems
+      include_tasks: tasks/update_alpine.yml
+      when: target_group == 'alpine_hosts'
+
+    - name: Update Debian systems
+      include_tasks: tasks/update_debian.yml
+      when: target_group == 'debian_hosts'
+
+    - name: Update Docker systems
+      include_tasks: tasks/update_docker.yml
+      when: target_group == 'docker_hosts'
+
+    - name: Update OpenWRT systems
+      include_tasks: tasks/update_openwrt.yml
+      when: target_group in ['openwrt_non_firewall', 'firewall_hosts']
+
+    - name: Update OctoPi systems
+      include_tasks: tasks/update_octopi.yml
+      when: target_group == 'octopi_hosts'
+
+    - name: Add delay after firewall update
+      pause:
+        seconds: 30
+        prompt: "Firewall updated, waiting 30 seconds for connectivity to stabilize..."
+      when: is_firewall is defined and is_firewall
+
+  rescue:
+    - name: Log group update failure
+      lineinfile:
+        path: "{{ update_log_file }}"
+        line: "FAILED: {{ target_group }} update failed at {{ ansible_date_time.iso8601 }}"
+      delegate_to: localhost
+      run_once: true

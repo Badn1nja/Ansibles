@@ -1,0 +1,44 @@
+---
+- name: Update Docker systems
+  block:
+    - name: Update Docker host packages (if Debian-based)
+      apt:
+        update_cache: yes
+        upgrade: dist
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: docker_host_update
+      ignore_errors: yes
+      when: "'debian' in hostvars[item].ansible_os_family | lower"
+
+    - name: Pull latest Docker images
+      shell: docker images --format "table {{.Repository}}:{{.Tag}}" | grep -v REPOSITORY | xargs -r docker pull
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: docker_pull_result
+      ignore_errors: yes
+
+    - name: Restart Docker containers with updated images
+      shell: |
+        docker ps -a --format "table {{.Names}}" | grep -v NAMES | while read container; do
+          docker restart "$container"
+        done
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: docker_restart_result
+      ignore_errors: yes
+
+    - name: Log Docker results
+      lineinfile:
+        path: "{{ update_log_file }}"
+        line: "Docker {{ item.item }}: {{ 'SUCCESS' if not item.failed else 'FAILED - ' + (item.msg | default('Unknown error')) }}"
+      loop: "{{ docker_pull_result.results }}"
+      delegate_to: localhost
+      when: docker_pull_result is defined
+
+  rescue:
+    - name: Add failed Docker hosts to list
+      set_fact:
+        failed_hosts: "{{ failed_hosts + [item] }}"
+      loop: "{{ groups[target_group] }}"
+      when: docker_pull_result is defined and docker_pull_result.failed

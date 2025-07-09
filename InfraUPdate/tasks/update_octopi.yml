@@ -1,0 +1,39 @@
+---
+- name: Update OctoPi systems
+  block:
+    - name: Check OctoPi connectivity
+      ping:
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: octopi_ping_result
+      ignore_errors: yes
+
+    - name: Update OctoPi packages (if reachable)
+      apt:
+        update_cache: yes
+        upgrade: safe
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: octopi_update_result
+      ignore_errors: yes
+      when: octopi_ping_result.results[loop.index0] is not failed
+      loop_control:
+        index_var: loop
+
+    - name: Log OctoPi results
+      lineinfile:
+        path: "{{ update_log_file }}"
+        line: "OctoPi {{ item.item }}: {{ 'OFFLINE' if octopi_ping_result.results[loop.index0].failed else ('SUCCESS' if not item.failed else 'FAILED - ' + (item.msg | default('Unknown error'))) }}"
+      loop: "{{ octopi_update_result.results }}"
+      delegate_to: localhost
+      when: octopi_update_result is defined
+      loop_control:
+        loop_var: item
+        index_var: loop
+
+  rescue:
+    - name: Log OctoPi failures (non-fatal)
+      lineinfile:
+        path: "{{ update_log_file }}"
+        line: "OctoPi group: Some systems offline or failed (non-fatal)"
+      delegate_to: localhost

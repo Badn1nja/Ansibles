@@ -1,0 +1,33 @@
+---
+- name: Update Alpine systems
+  block:
+    - name: Update Alpine package cache
+      apk:
+        update_cache: yes
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: alpine_cache_result
+      ignore_errors: yes
+
+    - name: Upgrade Alpine packages
+      apk:
+        upgrade: yes
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: alpine_upgrade_result
+      ignore_errors: yes
+
+    - name: Log Alpine results
+      lineinfile:
+        path: "{{ update_log_file }}"
+        line: "Alpine {{ item.item }}: {{ 'SUCCESS' if not item.failed else 'FAILED - ' + (item.msg | default('Unknown error')) }}"
+      loop: "{{ alpine_upgrade_result.results }}"
+      delegate_to: localhost
+      when: alpine_upgrade_result is defined
+
+  rescue:
+    - name: Add failed Alpine hosts to list
+      set_fact:
+        failed_hosts: "{{ failed_hosts + [item] }}"
+      loop: "{{ groups[target_group] }}"
+      when: alpine_upgrade_result is defined and alpine_upgrade_result.failed

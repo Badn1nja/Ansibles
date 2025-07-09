@@ -1,0 +1,38 @@
+---
+- name: Update OpenWRT systems
+  block:
+    - name: Update OpenWRT package lists
+      shell: opkg update
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: openwrt_update_result
+      ignore_errors: yes
+
+    - name: List upgradeable packages
+      shell: opkg list-upgradable
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: openwrt_upgradable
+      ignore_errors: yes
+
+    - name: Upgrade OpenWRT packages
+      shell: opkg list-upgradable | cut -f 1 -d ' ' | xargs -r opkg upgrade
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: openwrt_upgrade_result
+      ignore_errors: yes
+
+    - name: Log OpenWRT results
+      lineinfile:
+        path: "{{ update_log_file }}"
+        line: "OpenWRT {{ item.item }}: {{ 'SUCCESS' if not item.failed else 'FAILED - ' + (item.msg | default('Unknown error')) }}"
+      loop: "{{ openwrt_upgrade_result.results }}"
+      delegate_to: localhost
+      when: openwrt_upgrade_result is defined
+
+  rescue:
+    - name: Add failed OpenWRT hosts to list
+      set_fact:
+        failed_hosts: "{{ failed_hosts + [item] }}"
+      loop: "{{ groups[target_group] }}"
+      when: openwrt_upgrade_result is defined and openwrt_upgrade_result.failed

@@ -1,0 +1,47 @@
+---
+- name: Update Debian systems
+  block:
+    - name: Update Debian package cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: debian_cache_result
+      ignore_errors: yes
+
+    - name: Upgrade Debian packages
+      apt:
+        upgrade: dist
+        autoremove: yes
+        autoclean: yes
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: debian_upgrade_result
+      ignore_errors: yes
+
+    - name: Check if reboot required
+      stat:
+        path: /var/run/reboot-required
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: debian_reboot_check
+      ignore_errors: yes
+
+    - name: Log Debian results
+      lineinfile:
+        path: "{{ update_log_file }}"
+        line: "Debian {{ item.item }}: {{ 'SUCCESS' if not item.failed else 'FAILED - ' + (item.msg | default('Unknown error')) }}{{ ' (REBOOT REQUIRED)' if debian_reboot_check.results[loop.index0].stat.exists else '' }}"
+      loop: "{{ debian_upgrade_result.results }}"
+      delegate_to: localhost
+      when: debian_upgrade_result is defined
+      loop_control:
+        loop_var: item
+        index_var: loop
+
+  rescue:
+    - name: Add failed Debian hosts to list
+      set_fact:
+        failed_hosts: "{{ failed_hosts + [item] }}"
+      loop: "{{ groups[target_group] }}"
+      when: debian_upgrade_result is defined and debian_upgrade_result.failed
