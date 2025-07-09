@@ -15,7 +15,7 @@
       delegate_to: localhost
       run_once: true
 
-    - name: Update non-firewall hosts first
+    - name: Update non-firewall, non-firewall-hosting systems first
       include_tasks: tasks/update_systems.yml
       vars:
         target_group: "{{ item }}"
@@ -25,10 +25,22 @@
         - docker_hosts
         - openwrt_non_firewall
         - octopi_hosts
+        - proxmox_non_firewall_hosts
       loop_control:
         loop_var: target_group
 
-    - name: Update firewall hosts last
+    - name: Update Proxmox host that hosts the firewall (but not the firewall itself yet)
+      include_tasks: tasks/update_systems.yml
+      vars:
+        target_group: proxmox_firewall_host
+        is_firewall_host: true
+
+    - name: Wait for Proxmox firewall host to stabilize
+      pause:
+        seconds: 60
+        prompt: "Proxmox firewall host updated, waiting 60 seconds for services to stabilize..."
+
+    - name: Update firewall VM last
       include_tasks: tasks/update_systems.yml
       vars:
         target_group: firewall_hosts
@@ -36,7 +48,7 @@
 
     - name: Generate final report
       template:
-        src: update_report.j2
+        src: templates/update_report.j2
         dest: "/tmp/final_update_report_{{ ansible_date_time.epoch }}.txt"
       delegate_to: localhost
       run_once: true
