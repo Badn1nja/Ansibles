@@ -1,0 +1,23 @@
+Infrastructure Update Report
+Generated: {{ ansible_date_time.iso8601 }}
+
+Update Order:
+1. Alpine systems
+2. Debian systems  
+3. Docker systems
+4. OpenWRT (non-firewall)
+5. OctoPi systems
+6. Proxmox (non-firewall hosting)
+7. Proxmox (firewall hosting) ⚠️
+8. Firewall systems (LAST) ⚠️
+
+{% if failed_hosts %}
+Failed Systems:
+{% for host in failed_hosts %}
+- {{ host }}
+{% endfor %}
+{% endif %}
+
+Detailed log: {{ update_log_file }}
+
+⚠️ Critical: Firewall and its host were updated in safe order
