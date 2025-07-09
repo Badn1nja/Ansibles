@@ -1,7 +1,7 @@
 ---
 - name: Infrastructure Update Playbook
   hosts: localhost
-  gather_facts: false
+  gather_facts: true
   vars:
     update_log_file: "/tmp/update_results_{{ ansible_date_time.iso8601 }}.log"
     failed_hosts: []
