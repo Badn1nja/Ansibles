@@ -28,11 +28,21 @@
       include_tasks: tasks/update_octopi.yml
       when: target_group == 'octopi_hosts'
 
+    - name: Update Proxmox systems
+      include_tasks: tasks/update_proxmox.yml
+      when: target_group in ['proxmox_non_firewall_hosts', 'proxmox_firewall_host']
+
     - name: Add delay after firewall update
       pause:
         seconds: 30
         prompt: "Firewall updated, waiting 30 seconds for connectivity to stabilize..."
       when: is_firewall is defined and is_firewall
+
+    - name: Add delay after firewall host update
+      pause:
+        seconds: 45
+        prompt: "Firewall host updated, waiting 45 seconds for VM host to stabilize..."
+      when: is_firewall_host is defined and is_firewall_host
 
   rescue:
     - name: Log group update failure
