@@ -1,1 +1,66 @@
+---
+- name: Update Proxmox systems
+  block:
+    - name: Update Proxmox package cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: proxmox_cache_result
+      ignore_errors: yes
 
+    - name: Upgrade Proxmox packages
+      apt:
+        upgrade: dist
+        autoremove: yes
+        autoclean: yes
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: proxmox_upgrade_result
+      ignore_errors: yes
+
+    - name: Check if reboot required
+      stat:
+        path: /var/run/reboot-required
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: proxmox_reboot_check
+      ignore_errors: yes
+
+    - name: Update Proxmox VE packages specifically
+      apt:
+        name:
+          - proxmox-ve
+          - postfix
+          - open-iscsi
+        state: latest
+      delegate_to: "{{ item }}"
+      loop: "{{ groups[target_group] }}"
+      register: proxmox_ve_update_result
+      ignore_errors: yes
+
+    - name: Log Proxmox results
+      lineinfile:
+        path: "{{ update_log_file }}"
+        line: "Proxmox {{ item.item }}: {{ 'SUCCESS' if not item.failed else 'FAILED - ' + (item.msg | default('Unknown error')) }}{{ ' (REBOOT REQUIRED)' if proxmox_reboot_check.results[loop.index0].stat.exists else '' }}"
+      loop: "{{ proxmox_upgrade_result.results }}"
+      delegate_to: localhost
+      when: proxmox_upgrade_result is defined
+      loop_control:
+        loop_var: item
+        index_var: loop
+
+    - name: Warning for firewall host
+      lineinfile:
+        path: "{{ update_log_file }}"
+        line: "WARNING: Proxmox firewall host updated - firewall VM may be affected"
+      delegate_to: localhost
+      when: is_firewall_host is defined and is_firewall_host
+
+  rescue:
+    - name: Add failed Proxmox hosts to list
+      set_fact:
+        failed_hosts: "{{ failed_hosts + [item] }}"
+      loop: "{{ groups[target_group] }}"
+      when: proxmox_upgrade_result is defined and proxmox_upgrade_result.failed
